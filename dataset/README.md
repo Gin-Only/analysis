@@ -1,0 +1,1 @@
+# 本方案将原始数据集格式转换为coco数据格式，详情见PAN_PP_Joint_Train.py

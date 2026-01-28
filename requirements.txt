@@ -1,0 +1,15 @@
+mmcv==1.3.1
+imgaug==0.4.0
+Polygon3
+pyclipper
+imutils==0.5.4
+Cython
+editdistance
+torch
+torchvision
+tqdm
+tensorboard
+opencv-python==4.5.1.48
+scipy
+matplotlib
+pillow==8.3.0
