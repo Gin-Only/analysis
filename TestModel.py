@@ -39,7 +39,7 @@ REC_MODEL_WEIGHTS_PTH = 'weights/64_512_best_model_128_256_57.7acc.pt'
 PROCESS_ON_SMALLER_PIC = True
 
 # Recognition model selection
-USE_QWEN = True  # Set to True to use Qwen2.5-VL-7B, False to use CRNN
+USE_QWEN = False  # Set to True to use Qwen2.5-VL-7B, False to use CRNN (default)
 QWEN_MODEL_NAME = "Qwen/Qwen2-VL-7B-Instruct"  # or path to local model
 
 #说明：为减少空间占用，本队的三次提交均在代码中。三次提交分别对应代号PLAN-A、PLAN-B、PLAN-C。请通过更改PLAN值的方式，依次进行测试。

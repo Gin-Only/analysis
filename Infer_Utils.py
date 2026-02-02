@@ -1236,6 +1236,9 @@ def seq_rec(rec_model,demo_loader,device):
 
 
 # ==================== Qwen2.5-VL-7B Recognition Functions ====================
+# OCR prompt for Qwen model
+QWEN_OCR_PROMPT = "Extract and return only the text content from this image. Do not include any descriptions or explanations, just the text itself."
+
 def load_qwen_model(model_name="Qwen/Qwen2-VL-7B-Instruct", device="cuda"):
     """
     Load Qwen2.5-VL-7B model for text recognition
@@ -1291,7 +1294,7 @@ def qwen_rec(model, processor, image, device):
                     "type": "image",
                     "image": image,
                 },
-                {"type": "text", "text": "Extract and return only the text content from this image. Do not include any descriptions or explanations, just the text itself."},
+                {"type": "text", "text": QWEN_OCR_PROMPT},
             ],
         }
     ]
