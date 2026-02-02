@@ -38,6 +38,10 @@ ORDER_WEIGHTS_PTH = 'weights/order-cnt.pth'
 REC_MODEL_WEIGHTS_PTH = 'weights/64_512_best_model_128_256_57.7acc.pt'
 PROCESS_ON_SMALLER_PIC = True
 
+# Recognition model selection
+USE_QWEN = True  # Set to True to use Qwen2.5-VL-7B, False to use CRNN
+QWEN_MODEL_NAME = "Qwen/Qwen2-VL-7B-Instruct"  # or path to local model
+
 #说明：为减少空间占用，本队的三次提交均在代码中。三次提交分别对应代号PLAN-A、PLAN-B、PLAN-C。请通过更改PLAN值的方式，依次进行测试。
 # 即，若需要测试PLAN-C,则令下方的PLAN='C'即可。
 PLAN = 'A'
@@ -100,15 +104,28 @@ class Infer(object):
         model_structure(model)
         self.model=model
 
-        num_class = len(LABEL2CHAR) + 1
-        img_height = config['img_height']
-        img_width = config['img_width']
-        iuput_channel = 3 if is_RGB else 1
+        # Load recognition model based on USE_QWEN flag
+        self.use_qwen = USE_QWEN
+        
+        if USE_QWEN:
+            print(f"Loading Qwen2.5-VL-7B model: {QWEN_MODEL_NAME}")
+            from Infer_Utils import load_qwen_model
+            self.rec_model, self.qwen_processor = load_qwen_model(QWEN_MODEL_NAME, device)
+            print("Qwen2.5-VL-7B model loaded successfully")
+        else:
+            print("Loading CRNN model")
+            num_class = len(LABEL2CHAR) + 1
+            img_height = config['img_height']
+            img_width = config['img_width']
+            iuput_channel = 3 if is_RGB else 1
 
-        self.rec_model_weights_pth = REC_MODEL_WEIGHTS_PTH
-        crnn = CRNN_CBAM(iuput_channel, H, 512, 13981, 128, 256, False)
-        crnn.load_state_dict(torch.load(self.rec_model_weights_pth, map_location=self.device))
-        self.rec_model = crnn
+            self.rec_model_weights_pth = REC_MODEL_WEIGHTS_PTH
+            crnn = CRNN_CBAM(iuput_channel, H, 512, 13981, 128, 256, False)
+            crnn.load_state_dict(torch.load(self.rec_model_weights_pth, map_location=self.device))
+            self.rec_model = crnn
+            self.qwen_processor = None
+            print("CRNN model loaded successfully")
+        
         order_model = UNet(n_channels=1).to(device)
         order_model.load_state_dict(torch.load(ORDER_WEIGHTS_PTH))
         self.order_model = order_model
@@ -127,12 +144,14 @@ class Infer(object):
             shuffle=False,
             num_workers=1)
         self.GID = self.GID + 1
-        test(test_loader, self.model, self.rec_model,self.cfg,self.output_dir,self.order_model,writer,self.GID)
+        test(test_loader, self.model, self.rec_model, self.cfg, self.output_dir, 
+             self.order_model, writer, self.GID, self.use_qwen, self.qwen_processor)
 
 
-def test(test_loader, model, rec_model,cfg,output_dir,order_model,writer,GID):
+def test(test_loader, model, rec_model, cfg, output_dir, order_model, writer, GID, use_qwen=False, qwen_processor=None):
 
-    rec_model.eval()
+    if not use_qwen:
+        rec_model.eval()
     model.eval()
 
     # print('Start testing %d images' % len(test_loader))
@@ -298,8 +317,14 @@ def test(test_loader, model, rec_model,cfg,output_dir,order_model,writer,GID):
                                 patch = Image.fromarray(patch_cv)
                             else:
                                 patch = Image.fromarray(patch_cv).convert('L')
-                            # 获得序列识别结果识别结果
-                            output = crnn_rec(rec_model,patch,LABEL2CHAR,tfs,device)
+                            
+                            # Use Qwen or CRNN based on flag
+                            if use_qwen:
+                                from Infer_Utils import qwen_rec
+                                output = qwen_rec(rec_model, qwen_processor, patch, device)
+                            else:
+                                # 获得序列识别结果识别结果
+                                output = crnn_rec(rec_model,patch,LABEL2CHAR,tfs,device)
                             # print(f'crnn输出：{output}')
                             rec_seq.append(output)
                             # writer.add_image(f'Seq-Vis_{GID}', patch_cv, global_step=j, dataformats='HWC')
@@ -337,7 +362,13 @@ def test(test_loader, model, rec_model,cfg,output_dir,order_model,writer,GID):
                 patch_dataset = PatchDataset(all_patches,tfs,opt)
                 demo_loader = torch.utils.data.DataLoader(patch_dataset, batch_size=128,shuffle=False,num_workers=8, pin_memory=True)
                 # time_1_1 = time.time()
-                rec_rsts_in_single_img = seq_rec(rec_model,demo_loader,device)
+                
+                # Use Qwen or CRNN based on flag
+                if use_qwen:
+                    from Infer_Utils import qwen_seq_rec
+                    rec_rsts_in_single_img = qwen_seq_rec(rec_model, qwen_processor, demo_loader, device)
+                else:
+                    rec_rsts_in_single_img = seq_rec(rec_model,demo_loader,device)
                 # time_1_2 = time.time()
                 # print(f'rec per batch time:{time_1_2-time_1_1}')
 
