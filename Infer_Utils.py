@@ -1235,6 +1235,151 @@ def seq_rec(rec_model,demo_loader,device):
     return rst
 
 
+# ==================== Qwen2.5-VL-7B Recognition Functions ====================
+# OCR prompt for Qwen model
+QWEN_OCR_PROMPT = "Extract and return only the text content from this image. Do not include any descriptions or explanations, just the text itself."
+
+def load_qwen_model(model_name="Qwen/Qwen2-VL-7B-Instruct", device="cuda"):
+    """
+    Load Qwen2.5-VL-7B model for text recognition
+    
+    Args:
+        model_name: The model name or path
+        device: Device to load the model on
+        
+    Returns:
+        model: Loaded Qwen model
+        processor: Loaded processor
+    """
+    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+    
+    # Load the model
+    model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto" if torch.cuda.is_available() else None
+    )
+    
+    # Load the processor
+    processor = AutoProcessor.from_pretrained(model_name)
+    
+    return model, processor
+
+
+def qwen_rec(model, processor, image, device):
+    """
+    Single image recognition using Qwen2.5-VL-7B
+    
+    Args:
+        model: Qwen model
+        processor: Qwen processor
+        image: PIL Image or numpy array
+        device: Device to run inference on
+        
+    Returns:
+        str: Recognized text
+    """
+    from qwen_vl_utils import process_vision_info
+    
+    # Convert numpy array to PIL Image if needed
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    
+    # Prepare the message for OCR task
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "image": image,
+                },
+                {"type": "text", "text": QWEN_OCR_PROMPT},
+            ],
+        }
+    ]
+    
+    # Prepare inputs
+    text = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    image_inputs, video_inputs = process_vision_info(messages)
+    
+    inputs = processor(
+        text=[text],
+        images=image_inputs,
+        videos=video_inputs,
+        padding=True,
+        return_tensors="pt",
+    )
+    inputs = inputs.to(device)
+    
+    # Generate output
+    with torch.no_grad():
+        generated_ids = model.generate(**inputs, max_new_tokens=128)
+    
+    # Trim the input tokens
+    generated_ids_trimmed = [
+        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    ]
+    
+    # Decode the output
+    output_text = processor.batch_decode(
+        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    
+    return output_text[0].strip()
+
+
+def qwen_seq_rec(model, processor, demo_loader, device):
+    """
+    Batch recognition using Qwen2.5-VL-7B
+    
+    Args:
+        model: Qwen model
+        processor: Qwen processor
+        demo_loader: DataLoader containing patches
+        device: Device to run inference on
+        
+    Returns:
+        list: List of recognized texts
+    """
+    from qwen_vl_utils import process_vision_info
+    
+    rst = []
+    model.eval()
+    
+    for image_tensors in demo_loader:
+        # Convert tensors back to PIL Images
+        for i in range(image_tensors.size(0)):
+            # Denormalize if needed and convert to PIL
+            img_tensor = image_tensors[i]
+            
+            # Convert tensor to numpy array
+            if img_tensor.shape[0] == 3:  # RGB
+                img_np = img_tensor.permute(1, 2, 0).cpu().numpy()
+            else:  # Grayscale
+                img_np = img_tensor.cpu().numpy()
+            
+            # Convert to uint8
+            if img_np.max() <= 1.0:
+                img_np = (img_np * 255).astype(np.uint8)
+            else:
+                img_np = img_np.astype(np.uint8)
+            
+            # Convert to PIL Image
+            if len(img_np.shape) == 2 or img_np.shape[2] == 1:
+                pil_image = Image.fromarray(img_np, mode='L')
+            else:
+                pil_image = Image.fromarray(img_np, mode='RGB')
+            
+            # Recognize text
+            text = qwen_rec(model, processor, pil_image, device)
+            rst.append(text)
+    
+    return rst
+
+
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
